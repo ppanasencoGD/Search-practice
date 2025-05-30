@@ -22,7 +22,6 @@ public class ExercisesIntegrationTest extends BaseTest {
     }
 
     // TASK 1: Fix 2 bugs in config and recreation/filling of the index.
-    @Ignore
     @Test
     public void testGetAllWorks() {
         client
@@ -36,7 +35,6 @@ public class ExercisesIntegrationTest extends BaseTest {
     }
 
     // TASK 2: Fix bulk data file
-    @Ignore
     @Test
     public void testGetAllReturns36documents() {
         client
@@ -47,7 +45,7 @@ public class ExercisesIntegrationTest extends BaseTest {
             .then()
             .statusCode(200)
             .body("totalHits", is(36))
-            .body("elastic.typeaheads", hasSize(36));
+            .body("typeaheads", hasSize(36));
     }
 
     // TASK 3: Fix bug in search by text
