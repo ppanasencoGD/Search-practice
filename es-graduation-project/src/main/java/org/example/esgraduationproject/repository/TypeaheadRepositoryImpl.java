@@ -318,6 +318,8 @@ public class TypeaheadRepositoryImpl implements TypeaheadRepository {
         int requestCnt = 0;
         try {
             BulkRequest bulkRequest = new BulkRequest();
+            //TASK 6 alternative 1
+//            bulkRequest.setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE);
             BufferedReader br = new BufferedReader(new InputStreamReader(bulkInsertDataFile.getInputStream()));
 
             while (br.ready()) {
@@ -342,6 +344,8 @@ public class TypeaheadRepositoryImpl implements TypeaheadRepository {
             if (bulkResponse.hasFailures()) {
                 log.warn("Bulk data processing has failures:\n{}", bulkResponse.buildFailureMessage());
             }
+            //TASK 6 alternative 2
+            // esClient.indices().refresh(new RefreshRequest(indexName), RequestOptions.DEFAULT);
         } catch (IOException ex) {
             log.error("An exception occurred during bulk data processing", ex);
             throw new RuntimeException(ex);

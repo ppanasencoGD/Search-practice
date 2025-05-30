@@ -2,7 +2,6 @@ package org.example.esgraduationproject.common;
 
 import org.example.esgraduationproject.service.TypeaheadService;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -18,7 +17,7 @@ public class ExercisesIntegrationTest extends BaseTest {
     @Before
     public void init() throws InterruptedException {
         typeaheadService.recreateIndex();
-        Thread.sleep(1100); // TASK 6: Why if we change 1100 to 500, then some tests fail? How to fix it, so that all tests pass with 500?
+        Thread.sleep(500); // TASK 6: Why if we change 1100 to 500, then some tests fail? How to fix it, so that all tests pass with 500?
     }
 
     // TASK 1: Fix 2 bugs in config and recreation/filling of the index.
