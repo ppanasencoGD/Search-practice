@@ -49,7 +49,6 @@ public class ExercisesIntegrationTest extends BaseTest {
     }
 
     // TASK 3: Fix bug in search by text
-    @Ignore
     @Test
     public void testSearchByTextWorks() {
         client
@@ -62,7 +61,7 @@ public class ExercisesIntegrationTest extends BaseTest {
             // TotalHits
             .body("totalHits", is(21))
             // Typeaheads
-            .body("elastic.typeaheads", hasSize(3))
+            .body("typeaheads", hasSize(3))
             .body("typeaheads[0].name", is("Sneakers and shoes"))
             .body("typeaheads[0].rank", is(51))
             .body("typeaheads[1].name", is("Women's sneakers & shoes"))
