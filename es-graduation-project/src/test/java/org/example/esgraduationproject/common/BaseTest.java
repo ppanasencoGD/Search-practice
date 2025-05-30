@@ -1,4 +1,4 @@
-package common;
+package org.example.esgraduationproject.common;
 
 import io.restassured.filter.log.ResponseLoggingFilter;
 import io.restassured.specification.RequestSpecification;

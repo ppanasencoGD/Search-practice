@@ -1,4 +1,4 @@
-package common;
+package org.example.esgraduationproject.common;
 
 import org.example.esgraduationproject.service.TypeaheadService;
 import org.junit.Before;
