@@ -78,7 +78,6 @@ public class ExercisesIntegrationTest extends BaseTest {
     }
 
     // TASK 4: Change facet bucket definition so that the small bucket contain count > 0
-    @Ignore
     @Test
     public void testSearchByTextReturnsMoreThan0InSmallFacetBucket() {
         client
@@ -97,7 +96,6 @@ public class ExercisesIntegrationTest extends BaseTest {
     // TASK 5: Add a new parameter "considerItemCountInSorting" to the request that change sorting (when it's true)
     // from: _score DESC, rank DESC, _id DESC
     // to: _score DESC, itemCount DESC, _id DESC
-    @Ignore
     @Test
     public void testSortingByItemCountWorks() {
 

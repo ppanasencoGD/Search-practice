@@ -141,8 +141,8 @@ public class TypeaheadRepositoryImpl implements TypeaheadRepository {
             .field(ITEM_COUNT_FIELD)
             .keyed(true)
             .addRange(new RangeAggregator.Range("empty", null, 1.0))
-            .addRange("small", 1.0, 11.0)
-            .addRange("medium", 11.0, 101.0)
+            .addRange("small", 1.0, 31.0)
+            .addRange("medium", 31, 101.0)
             .addRange(new RangeAggregator.Range("large", 101.0, null));
         // Stats sub aggregation by the same field
         itemCountAgg.subAggregation(new StatsAggregationBuilder(RANK_STATS_SUB_AGG).field(RANK_FIELD));
