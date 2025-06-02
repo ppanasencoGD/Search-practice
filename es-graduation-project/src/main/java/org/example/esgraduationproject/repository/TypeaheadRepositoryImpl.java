@@ -4,9 +4,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
 import com.google.common.io.Resources;
+import org.elasticsearch.action.admin.indices.alias.Alias;
+import org.elasticsearch.action.admin.indices.alias.IndicesAliasesRequest;
+import org.elasticsearch.action.admin.indices.alias.get.GetAliasesRequest;
+import org.elasticsearch.action.support.WriteRequest;
+import org.elasticsearch.client.GetAliasesResponse;
 import org.example.esgraduationproject.model.TypeaheadServiceRequest;
 import org.example.esgraduationproject.model.TypeaheadServiceResponse;
 import lombok.extern.slf4j.Slf4j;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import org.elasticsearch.action.DocWriteRequest;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.action.bulk.BulkRequest;
@@ -67,7 +74,7 @@ public class TypeaheadRepositoryImpl implements TypeaheadRepository {
     private RestHighLevelClient esClient;
 
     @Value("${com.griddynamics.es.graduation.project.index}")
-    private String indexName;
+    private String aliasName;
 
     @Value("${com.griddynamics.es.graduation.project.request.fuzziness.startsFromLength.one:4}")
     int fuzzyOneStartsFromLength;
@@ -125,7 +132,7 @@ public class TypeaheadRepositoryImpl implements TypeaheadRepository {
         }
 
         // Search in ES
-        SearchRequest searchRequest = new SearchRequest(indexName).source(ssb);
+        SearchRequest searchRequest = new SearchRequest(aliasName).source(ssb);
         try {
             SearchResponse searchResponse = esClient.search(searchRequest, RequestOptions.DEFAULT);
             // Build service response
@@ -249,13 +256,16 @@ public class TypeaheadRepositoryImpl implements TypeaheadRepository {
 
     @Override
     public void recreateIndex() {
-        if (indexExists(indexName)) {
-            deleteIndex(indexName);
-        }
-
         String settings = getStrFromResource(typeaheadsSettingsFile);
         String mappings = getStrFromResource(typeaheadsMappingsFile);
-        createIndex(indexName, settings, mappings);
+
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("_yyyyMMddHHmmss");
+        String timestamp = LocalDateTime.now().format(formatter);
+        String newIndexName = aliasName + timestamp;
+
+        createIndex(newIndexName, settings, mappings);
+        updateAliasesByName(aliasName, newIndexName);
+        deleteOutdatedIndex(aliasName, newIndexName);
 
         processBulkInsertData(typeaheadsBulkInsertDataFile);
     }
@@ -284,10 +294,11 @@ public class TypeaheadRepositoryImpl implements TypeaheadRepository {
         }
     }
 
-    private void createIndex(String indexName, String settings, String mappings) {
-        CreateIndexRequest createIndexRequest = new CreateIndexRequest(indexName)
-            .mapping(mappings, XContentType.JSON)
-            .settings(settings, XContentType.JSON);
+    private void createIndex(String newIndexName, String settings, String mappings) {
+        CreateIndexRequest createIndexRequest = new CreateIndexRequest(newIndexName)
+                .mapping(mappings, XContentType.JSON)
+                .settings(settings, XContentType.JSON)
+                .alias(new Alias(aliasName));
 
         CreateIndexResponse createIndexResponse;
         try {
@@ -297,9 +308,58 @@ public class TypeaheadRepositoryImpl implements TypeaheadRepository {
         }
 
         if (!createIndexResponse.isAcknowledged()) {
-            throw new RuntimeException("Creating index not acknowledged for indexName: " + indexName);
+            throw new RuntimeException("Creating index not acknowledged for newIndexName: " + newIndexName);
         } else {
-            log.info("Index {} has been created.", indexName);
+            log.info("Index {} has been created.", newIndexName);
+        }
+    }
+
+    private void updateAliasesByName(String aliasName, String newIndexName) {
+        GetAliasesResponse aliasesResponse;
+        try {
+            IndicesAliasesRequest indicesAliasesRequest = new IndicesAliasesRequest();
+            GetAliasesRequest getAliasesRequest = new GetAliasesRequest()
+                    .aliases(aliasName);
+            aliasesResponse = esClient.indices().getAlias(getAliasesRequest, RequestOptions.DEFAULT);
+
+            aliasesResponse.getAliases().keySet().forEach(existingIndex -> {
+                IndicesAliasesRequest.AliasActions updateAliasActions = new IndicesAliasesRequest.AliasActions(IndicesAliasesRequest.AliasActions.Type.REMOVE)
+                        .index(existingIndex).alias(aliasName);
+                indicesAliasesRequest.addAliasAction(updateAliasActions);
+            });
+
+            IndicesAliasesRequest.AliasActions addAliasActions = new IndicesAliasesRequest.AliasActions(IndicesAliasesRequest.AliasActions.Type.ADD)
+                    .index(newIndexName).alias(aliasName);
+            indicesAliasesRequest.addAliasAction(addAliasActions);
+
+            AcknowledgedResponse aliasUpdateResponse = esClient.indices().updateAliases(indicesAliasesRequest, RequestOptions.DEFAULT);
+            if (!aliasUpdateResponse.isAcknowledged()) {
+                throw new RuntimeException("Alias update not acknowledged.");
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to update aliases for: " + newIndexName, e);
+        }
+    }
+
+    private void deleteOutdatedIndex(String aliasName, String newIndexName) {
+        try {
+            GetIndexRequest getIndexRequest = new GetIndexRequest(aliasName + "_*");
+            String[] allIndices = esClient.indices().get(getIndexRequest, RequestOptions.DEFAULT).getIndices();
+
+            List<String> matchingIndices = Arrays.stream(allIndices)
+                    .sorted(Comparator.reverseOrder())
+                    .skip(5)
+                    .collect(Collectors.toList());
+
+            if (!matchingIndices.isEmpty()) {
+                DeleteIndexRequest deleteRequest = new DeleteIndexRequest(matchingIndices.toArray(new String[0]));
+                AcknowledgedResponse acknowledgedResponse = esClient.indices().delete(deleteRequest, RequestOptions.DEFAULT);
+                if (!acknowledgedResponse.isAcknowledged()) {
+                    throw new RuntimeException("Index delete not acknowledged.");
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to delete aliases for: " + newIndexName, e);
         }
     }
 
@@ -318,8 +378,7 @@ public class TypeaheadRepositoryImpl implements TypeaheadRepository {
         int requestCnt = 0;
         try {
             BulkRequest bulkRequest = new BulkRequest();
-            //TASK 6 alternative 1
-//            bulkRequest.setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE);
+            bulkRequest.setRefreshPolicy(WriteRequest.RefreshPolicy.IMMEDIATE);
             BufferedReader br = new BufferedReader(new InputStreamReader(bulkInsertDataFile.getInputStream()));
 
             while (br.ready()) {
@@ -363,7 +422,7 @@ public class TypeaheadRepositoryImpl implements TypeaheadRepository {
             opType = DocWriteRequest.OpType.fromString(esOpType);
 
             JsonNode indexJsonNode = objectMapper.readTree(line1).iterator().next().get("_index");
-            esIndexName = (indexJsonNode != null ? indexJsonNode.textValue() : indexName);
+            esIndexName = (indexJsonNode != null ? indexJsonNode.textValue() : aliasName);
 
             JsonNode idJsonNode = objectMapper.readTree(line1).iterator().next().get("_id");
             esId = (idJsonNode != null ? idJsonNode.textValue() : null);
