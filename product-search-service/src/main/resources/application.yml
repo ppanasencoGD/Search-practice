@@ -1,0 +1,20 @@
+product.search:
+  esHost: http://localhost:9200
+  user:
+  pass:
+  index: pp_product_index
+
+  request:
+    default:
+      size: 10
+      page: 0
+    minQueryLength: 3
+    fuzziness:
+      startsFromLength:
+        one: 4
+        two: 6
+      boost:
+        zero: 1.0
+        one: 0.5
+        two: 0.25
+    prefixQueryBoost: 0.9
