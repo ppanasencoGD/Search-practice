@@ -1,0 +1,12 @@
+product.indexer:
+  esHost: http://localhost:9200
+  user:
+  pass:
+  index: pp_product_index
+
+  files:
+    mappings: classpath:elastic/product/mappings.json
+    settings: classpath:elastic/product/settings.json
+    bulkData: classpath:elastic/product/task_8_data.json
+server:
+  port: 8081
