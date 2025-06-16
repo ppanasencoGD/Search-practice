@@ -12,7 +12,7 @@ import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.aggregations.AggregationBuilder;
 import org.elasticsearch.search.aggregations.AggregationBuilders;
 import org.elasticsearch.search.aggregations.BucketOrder;
-import org.elasticsearch.search.aggregations.bucket.MultiBucketsAggregation;
+import org.elasticsearch.search.aggregations.bucket.nested.NestedAggregationBuilder;
 import org.elasticsearch.search.aggregations.bucket.nested.ParsedNested;
 import org.elasticsearch.search.aggregations.bucket.nested.ParsedReverseNested;
 import org.elasticsearch.search.aggregations.bucket.range.ParsedRange;
@@ -23,6 +23,7 @@ import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.sort.FieldSortBuilder;
+import org.elasticsearch.search.sort.SortBuilders;
 import org.elasticsearch.search.sort.SortOrder;
 import org.example.productsearchservice.model.ProductAggregationDto;
 import org.example.productsearchservice.model.ProductRequest;
@@ -68,19 +69,6 @@ public class ProductRepositoryImpl implements ProductRepository {
     @Value("${product.search.index}")
     private String aliasName;
 
-    @Value("${product.search.request.fuzziness.startsFromLength.one:4}")
-    int fuzzyOneStartsFromLength;
-    @Value("${product.search.request.fuzziness.startsFromLength.two:6}")
-    int fuzzyTwoStartsFromLength;
-    @Value("${product.search.request.fuzziness.boost.zero:1.0}")
-    float fuzzyZeroBoost;
-    @Value("${product.search.request.fuzziness.boost.one:0.5}")
-    float fuzzyOneBoost;
-    @Value("${product.search.request.fuzziness.boost.two:0.25}")
-    float fuzzyTwoBoost;
-    @Value("${product.search.request.prefixQueryBoost:0.9}")
-    float prefixQueryBoost;
-
     @Override
     public ProductServiceResponse getAllProductsByQuery(ProductRequest request) {
         QueryBuilder mainQuery = getQueryByText(request.getTextQuery());
@@ -93,7 +81,7 @@ public class ProductRepositoryImpl implements ProductRepository {
                 .from(request.getPage() * request.getSize())
                 .size(request.getSize());
 
-        searchSourceBuilder.sort(new FieldSortBuilder(SCORE_FIELD).order(SortOrder.DESC));
+        searchSourceBuilder.sort(SortBuilders.scoreSort());
         searchSourceBuilder.sort(new FieldSortBuilder(ID_FIELD).order(SortOrder.DESC));
 
         List<AggregationBuilder> aggs = createAggs();
@@ -110,7 +98,6 @@ public class ProductRepositoryImpl implements ProductRepository {
     }
 
     private List<AggregationBuilder> createAggs() {
-        //Price aggregation
         List<AggregationBuilder> result = new ArrayList<>();
         RangeAggregationBuilder itemCountAgg = AggregationBuilders
                 .range(PRICE_AGG)
@@ -122,7 +109,6 @@ public class ProductRepositoryImpl implements ProductRepository {
 
         result.add(itemCountAgg);
 
-        //Brand aggregation
         TermsAggregationBuilder brandAggregation = AggregationBuilders.terms(BRAND_AGG)
                 .field(BRAND_KEYWORD_FIELD)
                 .size(AGGREGATION_SIZE)
@@ -134,34 +120,34 @@ public class ProductRepositoryImpl implements ProductRepository {
                 ));
         result.add(brandAggregation);
 
-        //SKU aggregation
-        AggregationBuilder skuSizeAggregation = AggregationBuilders.nested(NESTED_SKU_SIZE_FIELD, SKU_FIELD)
-                .subAggregation(
-                        AggregationBuilders.terms(SIZE_AGG)
-                                .field(SKU_SIZE)
-                                .size(AGGREGATION_SIZE)
-                                .order(BucketOrder.compound(
-                                        Arrays.asList(
-                                                BucketOrder.aggregation("reverse_to_product.doc_count", false),
-                                                BucketOrder.key(true)
-                                        )
-                                )).subAggregation(AggregationBuilders.reverseNested("reverse_to_product")));
-        result.add(skuSizeAggregation);
+        BucketOrder order = BucketOrder.compound(
+                BucketOrder.aggregation("to_product.doc_count", false),
+                BucketOrder.key(true)
+        );
 
-        AggregationBuilder skuColorAggregation = AggregationBuilders.nested(NESTED_SKU_COLOR_FIELD, SKU_FIELD)
+        TermsAggregationBuilder skuSizeAgg = AggregationBuilders.terms(NESTED_SKU_SIZE_FIELD)
+                .field(SKU_SIZE)
+                .order(order)
+                .size(100)
+                .shardSize(500)
                 .subAggregation(
-                        AggregationBuilders.terms(COLOR_AGG)
-                                .field(SKU_COLOR)
-                                .size(AGGREGATION_SIZE)
-                                .order(BucketOrder.compound(
-                                        Arrays.asList(
-                                                BucketOrder.aggregation("reverse_to_product.doc_count", false),
-                                                BucketOrder.key(true)
-                                        )
-                                )
-        )
-                .subAggregation(AggregationBuilders.reverseNested("reverse_to_product")));
-        result.add(skuColorAggregation);
+                        AggregationBuilders.reverseNested("to_product")
+                );
+
+        TermsAggregationBuilder skuColorAgg = AggregationBuilders.terms(NESTED_SKU_COLOR_FIELD)
+                .field(SKU_COLOR)
+                .order(order)
+                .size(100)
+                .shardSize(500)
+                .subAggregation(
+                        AggregationBuilders.reverseNested("to_product")
+                );
+
+        NestedAggregationBuilder nestedSkuAgg = AggregationBuilders.nested("agg_skus", SKU_FIELD)
+                .subAggregation(skuSizeAgg)
+                .subAggregation(skuColorAgg);
+
+        result.add(nestedSkuAgg);
 
         return result;
     }
@@ -198,12 +184,12 @@ public class ProductRepositoryImpl implements ProductRepository {
     }
 
     private static void mapSkuColorAggregation(SearchResponse searchResponse, ProductServiceResponse response) {
-        ParsedNested nested = searchResponse.getAggregations().get(NESTED_SKU_COLOR_FIELD);
-        ParsedTerms colorTerms = nested.getAggregations().get(COLOR_AGG);
+        ParsedNested nested = searchResponse.getAggregations().get("agg_skus");
+        ParsedTerms colorTerms = nested.getAggregations().get(NESTED_SKU_COLOR_FIELD);
 
         List<ProductAggregationDto> colorFacet = colorTerms.getBuckets().stream()
                 .map(bucket -> {
-                    ParsedReverseNested reverseNested = bucket.getAggregations().get("reverse_to_product");
+                    ParsedReverseNested reverseNested = bucket.getAggregations().get("to_product");
                     long productCount = reverseNested.getDocCount();
                     return ProductAggregationDto.builder()
                             .count(productCount)
@@ -220,12 +206,12 @@ public class ProductRepositoryImpl implements ProductRepository {
     }
 
     private static void mapSkuSizeAggregation(SearchResponse searchResponse, ProductServiceResponse response) {
-        ParsedNested nested = searchResponse.getAggregations().get(NESTED_SKU_SIZE_FIELD);
-        ParsedTerms colorTerms = nested.getAggregations().get(SIZE_AGG);
+        ParsedNested nested = searchResponse.getAggregations().get("agg_skus");
+        ParsedTerms colorTerms = nested.getAggregations().get(NESTED_SKU_SIZE_FIELD);
 
         List<ProductAggregationDto> colorFacet = colorTerms.getBuckets().stream()
                 .map(bucket -> {
-                    ParsedReverseNested reverseNested = bucket.getAggregations().get("reverse_to_product");
+                    ParsedReverseNested reverseNested = bucket.getAggregations().get("to_product");
                     long productCount = reverseNested.getDocCount();
                     return ProductAggregationDto.builder()
                             .count(productCount)
@@ -276,10 +262,11 @@ public class ProductRepositoryImpl implements ProductRepository {
         if (matchedColor != null || matchedSize != null) {
             BoolQueryBuilder nestedSkuQuery = QueryBuilders.boolQuery();
             if (matchedColor != null) {
-                nestedSkuQuery.must(QueryBuilders.matchQuery(SKU_COLOR, matchedColor));
+                nestedSkuQuery.must(QueryBuilders.matchQuery(SKU_COLOR, matchedColor)).boost(3.0f);
             }
             if (matchedSize != null) {
-                nestedSkuQuery.must(QueryBuilders.matchQuery(SKU_SIZE, matchedSize));
+                nestedSkuQuery.must(QueryBuilders.matchQuery(SKU_SIZE, matchedSize)).boost(2.0f);
+                ;
             }
 
             mainBoolQuery.must(QueryBuilders.nestedQuery(SKU_FIELD, nestedSkuQuery, ScoreMode.Avg));
@@ -288,7 +275,6 @@ public class ProductRepositoryImpl implements ProductRepository {
         if (!generalTokens.isEmpty()) {
             String generalQueryText = String.join(" ", generalTokens);
 
-            // Multi-match query over name and brand fields
             MultiMatchQueryBuilder crossFieldQuery = QueryBuilders.multiMatchQuery(
                             generalQueryText,
                             NAME_FIELD, BRAND_FIELD
@@ -297,30 +283,17 @@ public class ProductRepositoryImpl implements ProductRepository {
                     .operator(Operator.AND);
 
             mainBoolQuery.must(crossFieldQuery);
-
-            // Shingles boost query
-            MultiMatchQueryBuilder shinglesBoostQuery = QueryBuilders.multiMatchQuery(
-                            generalQueryText,
-                            NAME_SHINGLE, BRAND_SHINGLE
-                    )
-                    .type(MultiMatchQueryBuilder.Type.PHRASE)
-                    .boost(5);
-
-            mainBoolQuery.should(shinglesBoostQuery);
         }
 
+        MultiMatchQueryBuilder shinglesBoostQuery = QueryBuilders.multiMatchQuery(
+                        textQuery,
+                        NAME_SHINGLE, BRAND_SHINGLE
+                )
+                .type(MultiMatchQueryBuilder.Type.PHRASE)
+                .boost(5.0f);
+
+        mainBoolQuery.should(shinglesBoostQuery);
+
         return mainBoolQuery;
-    }
-
-    private int getDistanceByTermLength(final String token) {
-        return token.length() >= fuzzyTwoStartsFromLength
-                ? 2
-                : (token.length() >= fuzzyOneStartsFromLength ? 1 : 0);
-    }
-
-    private float getBoostByDistance(final int distance) {
-        return distance == 0
-                ? fuzzyZeroBoost
-                : (distance == 1 ? fuzzyOneBoost : fuzzyTwoBoost);
     }
 }

@@ -19,12 +19,19 @@
         ]
       },
       "shingle_analyzer": {
-        "type": "custom",
         "tokenizer": "standard",
         "filter": [
           "lowercase",
           "asciifolding",
           "shingle_filter"
+        ]
+      }
+    },
+    "normalizer": {
+      "lowercase_normalizer": {
+        "filter": [
+          "lowercase",
+          "asciifolding"
         ]
       }
     },
@@ -34,15 +41,6 @@
         "min_shingle_size": 2,
         "max_shingle_size": 4,
         "output_unigrams": false
-      }
-    },
-    "normalizer": {
-      "lowercase_normalizer": {
-        "type": "custom",
-        "char_filter": [],
-        "filter": [
-          "lowercase"
-        ]
       }
     }
   }
