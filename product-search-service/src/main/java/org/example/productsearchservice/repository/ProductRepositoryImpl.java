@@ -227,12 +227,10 @@ public class ProductRepositoryImpl implements ProductRepository {
         Terms terms = searchResponse.getAggregations().get(BRAND_AGG);
 
         List<ProductAggregationDto> brandFacet = terms.getBuckets().stream()
-                .map(bucket -> {
-                    return ProductAggregationDto.builder()
-                            .count(bucket.getDocCount())
-                            .value(bucket.getKeyAsString())
-                            .build();
-                })
+                .map(bucket -> ProductAggregationDto.builder()
+                        .count(bucket.getDocCount())
+                        .value(bucket.getKeyAsString())
+                        .build())
                 .collect(Collectors.toList());
 
         response.getFacets().put(BRAND_FIELD, brandFacet);
@@ -266,7 +264,6 @@ public class ProductRepositoryImpl implements ProductRepository {
             }
             if (matchedSize != null) {
                 nestedSkuQuery.must(QueryBuilders.matchQuery(SKU_SIZE, matchedSize)).boost(2.0f);
-                ;
             }
 
             mainBoolQuery.must(QueryBuilders.nestedQuery(SKU_FIELD, nestedSkuQuery, ScoreMode.Avg));
@@ -289,7 +286,7 @@ public class ProductRepositoryImpl implements ProductRepository {
                         textQuery,
                         NAME_SHINGLE, BRAND_SHINGLE
                 )
-                .type(MultiMatchQueryBuilder.Type.PHRASE)
+                .type(MultiMatchQueryBuilder.Type.BEST_FIELDS)
                 .boost(5.0f);
 
         mainBoolQuery.should(shinglesBoostQuery);
